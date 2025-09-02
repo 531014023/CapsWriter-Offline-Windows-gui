@@ -11,12 +11,19 @@ CapsWriter-Offline是CapsWriter 的离线版，一个好用的 PC 端的语音�
 只需要下载`CapsWriter-Offline-Windows-gui-exe.win-amd64-3.11.zip`和`models.zip`这两个压缩包，解压到自己新建的文件夹，models.zip解压放置到`exe.win-amd64-3.11\CapsWriter-Offline-Windows-64bit`下面，运行`exe.win-amd64-3.11`下的`.exe`文件即可使用。
 
 # 自行打包使用方法
+
+打包所需文件：
+- `CapsWriter-Offline-Windows-64bit` # 待打包程序文件
+- `setup.py` # 打包程序
+- `caps_writer_launcher.py`/`caps_writer_launcher_pyqt.py` # 二选一，默认用pyqt版本，如果用旧版需要在setup.py中修改`caps_writer_launcher_pyqt.py`改为`caps_writer_launcher.py`
+
 ```
 python setup.py build
 ```
 此命令会在当前目录生成build文件夹，其中就是一个完整的应用，执行exe即可打开使用，需要注意的是在使用命令前，需要先将[github](https://github.com/HaujetZhao/CapsWriter-Offline)程序`CapsWriter-Offline-Windows-64bit`放到当前目录供打包使用。打包后执行的是`CapsWriter-Offline-Windows-64bit`下的start_all.vbs，此文件是自定义的，就是隐藏黑窗口命令：
 ```
 CreateObject("Wscript.Shell").Run "start_server.exe",0,False
+WScript.Sleep 1000
 CreateObject("Wscript.Shell").Run "start_client.exe",0,False
 ```
 如果不是用的我提供的程序就需要自己添上start_all.vbs文件。
