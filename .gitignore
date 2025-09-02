@@ -1,0 +1,16 @@
+CapsWriter-Offline-Windows-64bit/
+# 忽略所有以 .tmp 结尾的临时文件
+*.tmp
+
+# 忽略所有日志文件
+*.log
+
+# 忽略系统自动生成的隐藏文件
+.DS_Store
+Thumbs.db
+
+# 忽略Python的编译文件和虚拟环境
+__pycache__/
+*.pyc
+*.pyo
+venv/
