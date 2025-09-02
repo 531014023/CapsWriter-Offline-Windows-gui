@@ -7,6 +7,8 @@ CapsWriter-Offline是CapsWriter 的离线版，一个好用的 PC 端的语音�
 
 [夸克下载链接](https://pan.quark.cn/s/caa29c83e985)，这是我打包exe后的下载地址，里面有打包工具的代码和打包后的文件以及gui图形界面的使用介绍。软件纯绿色，不需要安装，解压放置模型即可使用。
 
+[Releases · 531014023/CapsWriter-Offline-Windows-gui](https://github.com/531014023/CapsWriter-Offline-Windows-gui/releases)，补一个打包后exe文件下载地址，github发布页面比较稳，不会和谐。
+
 # 使用方法
 只需要下载`CapsWriter-Offline-Windows-gui-exe.win-amd64-3.11.zip`和`models.zip`这两个压缩包，解压到自己新建的文件夹，models.zip解压放置到`exe.win-amd64-3.11\CapsWriter-Offline-Windows-64bit`下面，运行`exe.win-amd64-3.11`下的`.exe`文件即可使用。
 
