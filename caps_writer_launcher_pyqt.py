@@ -3,24 +3,82 @@ from tkinter import messagebox, ttk
 import subprocess
 import os
 import threading
-from PIL import Image, ImageDraw
-import pystray
 import psutil
 import time
 import multiprocessing
 import sys
-from pathlib import Path 
+from pathlib import Path
+from PyQt5 import QtWidgets, QtGui, QtCore
+
+class SystemTrayIcon(QtWidgets.QSystemTrayIcon):
+    def __init__(self, parent_app, icon_path=None):
+        super().__init__()
+        self.parent_app = parent_app
+        
+        # 创建托盘图标
+        if icon_path and os.path.exists(icon_path):
+            self.setIcon(QtGui.QIcon(icon_path))
+        else:
+            # 创建默认图标
+            pixmap = QtGui.QPixmap(64, 64)
+            pixmap.fill(QtGui.QColor(40, 40, 40))
+            painter = QtGui.QPainter(pixmap)
+            painter.fillRect(16, 16, 32, 32, QtGui.QColor(0, 120, 215))
+            painter.end()
+            self.setIcon(QtGui.QIcon(pixmap))
+        
+        self.setToolTip("CapsWriter 启动器")
+        
+        # 创建右键菜单
+        self.menu = QtWidgets.QMenu()
+        
+        self.show_action = QtWidgets.QAction("显示主窗口", self)
+        self.show_action.triggered.connect(self.parent_app.show_window)
+        self.menu.addAction(self.show_action)
+        
+        self.start_action = QtWidgets.QAction("启动 CapsWriter", self)
+        self.start_action.triggered.connect(self.parent_app.start_caps_writer)
+        self.menu.addAction(self.start_action)
+        
+        self.stop_action = QtWidgets.QAction("停止 CapsWriter", self)
+        self.stop_action.triggered.connect(self.parent_app.stop_caps_writer)
+        self.menu.addAction(self.stop_action)
+        
+        self.check_action = QtWidgets.QAction("检查进程状态", self)
+        self.check_action.triggered.connect(self.parent_app.check_process_status)
+        self.menu.addAction(self.check_action)
+        
+        self.menu.addSeparator()
+        
+        self.exit_action = QtWidgets.QAction("退出", self)
+        self.exit_action.triggered.connect(self.parent_app.exit_application)
+        self.menu.addAction(self.exit_action)
+        
+        self.setContextMenu(self.menu)
+        
+        # 连接双击事件
+        self.activated.connect(self.on_tray_activated)
+
+    def on_tray_activated(self, reason):
+        if reason == QtWidgets.QSystemTrayIcon.DoubleClick:
+            self.parent_app.show_window()
 
 class CapsWriterLauncher:
     def __init__(self, root):
         self.root = root
         self.root.title("CapsWriter-Offline 启动器")
-        self.root.geometry("600x400")
+        self.root.geometry("600x450")
         self.root.resizable(True, True)
+        # self.root.protocol('WM_DELETE_WINDOW', self.minimize_to_tray)
         self.root.protocol('WM_DELETE_WINDOW', self.exit_application)
-        self.tray_icon = None  # 初始化托盘图标变量
-        self.tray_thread = None  # 初始化托盘线程变量
-        self.tray_running = False  # 添加托盘运行状态标志
+        
+        # 初始化 Qt 应用（用于系统托盘）
+        self.qt_app = QtWidgets.QApplication.instance()
+        if not self.qt_app:
+            self.qt_app = QtWidgets.QApplication([])
+        
+        # 系统托盘图标
+        self.tray_icon = None
         
         # 设置 CapsWriter-Offline 路径
         self.caps_writer_dir = r".\CapsWriter-Offline-Windows-64bit"
@@ -37,10 +95,10 @@ class CapsWriterLauncher:
         
         # 启动时自动检查进程状态
         self.root.after(100, self.async_check_process_status)
-
+    
     def async_check_process_status(self):
         """在后台线程中异步检查进程状态"""
-        threading.Thread(target=self.check_process_status, daemon=True).start()    
+        threading.Thread(target=self.check_process_status, daemon=True).start()
     def check_programs_exist(self):
         """检查 start_all.vbs 脚本是否存在"""
         if not os.path.exists(self.start_all_vbs):
@@ -127,15 +185,16 @@ class CapsWriterLauncher:
         self.log(f"VBS脚本路径: {self.start_all_vbs}")
     
     def log(self, message):
-        """添加日志信息"""
+        """添加日志信息（退出时禁用）"""
         timestamp = time.strftime("%H:%M:%S")
-         # 在后台线程中，使用 after 方法安全地更新UI
+        # 在后台线程中，使用 after 方法安全地更新UI
         self.root.after(0, lambda: self._safe_log(message, timestamp))
-    
+
     def _safe_log(self, message, timestamp):
         """线程安全的日志记录"""
         self.log_text.insert(tk.END, f"[{timestamp}] {message}\n")
         self.log_text.see(tk.END)
+    
     def check_process_status(self):
         """检查进程状态"""
         try:
@@ -188,39 +247,8 @@ class CapsWriterLauncher:
     
     def create_tray_icon(self):
         """创建系统托盘图标"""
-        image = Image.new('RGB', (64, 64), (40, 40, 40))
-        dc = ImageDraw.Draw(image)
-        dc.rectangle((16, 16, 48, 48), fill=(0, 120, 215))
-        
-        menu = pystray.Menu(
-            pystray.MenuItem('显示主窗口', self.show_window),
-            pystray.MenuItem('启动 CapsWriter', self.start_caps_writer),
-            pystray.MenuItem('停止 CapsWriter', self.stop_caps_writer),
-            pystray.MenuItem('检查进程状态', self.check_process_status),
-            pystray.MenuItem('退出', self.exit_application)
-        )
-        
-        self.tray_icon = pystray.Icon("caps_writer_launcher", image, "CapsWriter 启动器", menu)
-        
-        # 尝试设置默认项目来响应点击（虽然不是真正的双击，但更稳定）
-        # 有些版本的 pystray 支持设置默认菜单项来响应左键单击
-        # 这可以作为双击的一种替代方案
-        try:
-            # 检查 pystray 版本是否支持 default 参数
-            default_item = pystray.MenuItem('显示主窗口', self.show_window, default=True)
-            # 如果支持，重新创建包含默认项的菜单
-            menu = pystray.Menu(
-                default_item,
-                pystray.MenuItem('启动 CapsWriter', self.start_caps_writer),
-                pystray.MenuItem('停止 CapsWriter', self.stop_caps_writer),
-                pystray.MenuItem('检查进程状态', self.check_process_status),
-                pystray.MenuItem('退出', self.exit_application)
-            )
-            self.tray_icon.menu = menu
-        except (TypeError, AttributeError):
-            # 如果不支持 default 参数，回退到原始菜单
-            self.log("当前 pystray 版本不支持默认菜单项，将使用标准菜单")
-            pass
+        self.tray_icon = SystemTrayIcon(self)
+        self.tray_icon.show()
     
     def start_caps_writer(self):
         """启动 CapsWriter"""
@@ -264,7 +292,7 @@ class CapsWriterLauncher:
             
             self.log("VBS脚本已启动，等待Server和Client进程初始化...")
             
-            # ... (后续的等待和状态检查逻辑保持不变，例如等待25秒)
+            # 等待组件初始化
             for i in range(53, 0, -1):
                 self.root.after(0, lambda: self.status_var.set(f"状态: 等待组件初始化...{i}秒"))
                 time.sleep(1)
@@ -308,7 +336,7 @@ class CapsWriterLauncher:
                 except Exception as e:
                     self.log(f"终止 {proc_name} 进程时出错: {str(e)}")
             
-            
+            # 额外检查：确保进程确实已终止
             # 再次检查并报告状态
             server_running, server_pid = self.check_process_by_name('start_server.exe', self.caps_writer_dir)
             client_running, client_pid = self.check_process_by_name('start_client.exe', self.caps_writer_dir)
@@ -325,7 +353,6 @@ class CapsWriterLauncher:
                 
         except Exception as e:
             self.log(f"停止进程时发生错误: {str(e)}")
-
     
     def stop_caps_writer(self):
         """停止 CapsWriter"""
@@ -345,7 +372,7 @@ class CapsWriterLauncher:
             self.root.after(0, lambda: self.stop_btn.config(state=tk.DISABLED))
             
             self.log("CapsWriter 已完全停止")
-            self.root.after(1000, self.check_process_status)
+            self.root.after(100, self.check_process_status)
             
         except Exception as e:
             error_msg = f"停止失败: {str(e)}"
@@ -374,60 +401,29 @@ class CapsWriterLauncher:
         """执行最终的退出操作（在主线程中调用）"""
         # 停止托盘图标
         if self.tray_icon:
-            self.tray_icon.stop()
+            self.tray_icon.hide()
         # 销毁主窗口
         self.root.destroy()
-        # 退出应用
-        os._exit(0)
+        # 退出Qt应用
+        if self.qt_app:
+            self.qt_app.quit()
     def minimize_to_tray(self):
         """最小化到系统托盘"""
         self.root.withdraw()
-        
-         # 如果托盘图标不存在或已停止，重新创建
-        if self.tray_icon is None or not self.tray_running:
-            self.create_tray_icon()  # 重新创建托盘图标
-        
-        self.tray_thread_start()
-        
         self.log("程序已最小化到系统托盘")
-        
-    def tray_thread_start(self):
-        # 确保只启动一次托盘图标线程
-        if self.tray_thread is None or not self.tray_thread.is_alive():
-            self.tray_thread = threading.Thread(target=self._run_tray_icon, daemon=True)
-            self.tray_thread.start()
-        
-    def _run_tray_icon(self):
-        """运行托盘图标（在单独线程中）"""
-        try:
-            if self.tray_icon:
-                self.tray_running = True
-                self.tray_icon.run()
-        except Exception as e:
-            self.log(f"托盘图标运行错误: {str(e)}")
-        finally:
-            self.tray_running = False
     
     def show_window(self, icon=None, item=None):
         """从托盘显示主窗口"""
-        # 先立即显示窗口框架，避免白屏
         self.root.deiconify()
         self.root.lift()
         self.root.focus_force()
-        # 不要停止托盘图标，只是隐藏主窗口
-        # 托盘图标会在窗口显示后继续运行
-        # 延迟执行耗时操作，让窗口先显示出来
         self.root.after(100, self._deferred_window_setup)
-    
+
     def _deferred_window_setup(self):
         """显示主窗口"""
         # 更新状态（分步执行，避免阻塞）
         self.root.after(100, self.check_process_status)
         self.log("主窗口已显示")
-        
-        # 停止托盘图标
-        if self.tray_icon:
-            self.tray_icon.stop()
         
         # 强制重绘界面
         self.root.update_idletasks()
