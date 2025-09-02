@@ -69,8 +69,8 @@ class CapsWriterLauncher:
         self.root.title("CapsWriter-Offline 启动器")
         self.root.geometry("600x450")
         self.root.resizable(True, True)
-        # self.root.protocol('WM_DELETE_WINDOW', self.minimize_to_tray)
-        self.root.protocol('WM_DELETE_WINDOW', self.exit_application)
+        self.root.protocol('WM_DELETE_WINDOW', self.minimize_to_tray)
+        # self.root.protocol('WM_DELETE_WINDOW', self.exit_application)
         
         # 初始化 Qt 应用（用于系统托盘）
         self.qt_app = QtWidgets.QApplication.instance()
@@ -79,6 +79,9 @@ class CapsWriterLauncher:
         
         # 系统托盘图标
         self.tray_icon = None
+        self.server_exe = 'start_server.exe'
+        self.client_exe = 'start_client.exe'
+        self.target_processes = [self.server_exe, self.client_exe]
         
         # 设置 CapsWriter-Offline 路径
         self.caps_writer_dir = r".\CapsWriter-Offline-Windows-64bit"
@@ -198,15 +201,17 @@ class CapsWriterLauncher:
     def check_process_status(self):
         """检查进程状态"""
         try:
+            process_status = self.check_processes_by_names(self.target_processes, self.caps_writer_dir)
+            
+            server_running, server_pid = process_status[self.server_exe]
+            client_running, client_pid = process_status[self.client_exe]
             # 检查 Server 进程
-            server_running, server_pid = self.check_process_by_name('start_server.exe', self.caps_writer_dir)
             if server_running:
                 self.server_status_var.set(f"✅ 运行中 (PID: {server_pid})")
             else:
                 self.server_status_var.set("❌ 未运行")
             
             # 检查 Client 进程
-            client_running, client_pid = self.check_process_by_name('start_client.exe', self.caps_writer_dir)
             if client_running:
                 self.client_status_var.set(f"✅ 运行中 (PID: {client_pid})")
             else:
@@ -227,23 +232,44 @@ class CapsWriterLauncher:
         except Exception as e:
             self.log(f"检查进程状态时出错: {str(e)}")
 
-    def check_process_by_name(self, process_name, target_dir=None):
-        """按进程名检查进程"""
+    def check_processes_by_names(self, target_processes, target_dir=None):
+        """
+        一次性检查多个进程的状态
+        :param target_processes: 要检查的进程名称列表，如 ['start_server.exe', 'start_client.exe']
+        :param target_dir: 目标工作目录（可选）
+        :return: 字典，key为进程名，value为 (是否运行, PID) 的元组
+        """
+        result = {proc_name: (False, None) for proc_name in target_processes}
+        
         try:
-            for proc in psutil.process_iter(['pid', 'name', 'exe', 'cwd']):
+            # 一次性获取所有进程信息[1](@ref)[2](@ref)[3](@ref)
+            processes = list(psutil.process_iter(['pid', 'name', 'cwd']))
+            
+            for proc in processes:
                 try:
-                    if proc.info['name'].lower() == process_name.lower():
+                    proc_info = proc.info
+                    proc_name = proc_info.get('name', '').lower()
+                    
+                    # 检查是否是目标进程
+                    if proc_name in [p.lower() for p in target_processes]:
+                        # 检查工作目录是否匹配（如果指定了target_dir）
                         if target_dir is None or (
-                            proc.info.get('cwd') and 
-                            os.path.abspath(proc.info['cwd']) == os.path.abspath(target_dir)
+                            proc_info.get('cwd') and 
+                            os.path.abspath(proc_info['cwd']) == os.path.abspath(target_dir)
                         ):
-                            return True, proc.info['pid']
+                            # 找到原始大小写的进程名
+                            original_name = next((p for p in target_processes if p.lower() == proc_name), proc_name)
+                            result[original_name] = (True, proc_info.get('pid'))
+                            
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
-            return False, None
+                    
+            return result
+            
         except Exception as e:
-            self.log(f"检查进程 {process_name} 时出错: {str(e)}")
-            return False, None
+            self.log(f"检查进程时出错: {str(e)}")
+            return result
+
     
     def create_tray_icon(self):
         """创建系统托盘图标"""
@@ -266,8 +292,10 @@ class CapsWriterLauncher:
         """通过VBS脚本启动CapsWriter，启动前检查进程是否存在"""
         try:
             # 1. 检查进程是否存在，而不是直接停止
-            server_running, server_pid = self.check_process_by_name('start_server.exe', self.caps_writer_dir)
-            client_running, client_pid = self.check_process_by_name('start_client.exe', self.caps_writer_dir)
+            process_status = self.check_processes_by_names(self.target_processes, self.caps_writer_dir)
+            
+            server_running, server_pid = process_status[self.server_exe]
+            client_running, client_pid = process_status[self.client_exe]
 
             # 2. 根据进程状态决定后续操作
             if server_running or client_running:
@@ -293,7 +321,7 @@ class CapsWriterLauncher:
             self.log("VBS脚本已启动，等待Server和Client进程初始化...")
             
             # 等待组件初始化
-            for i in range(53, 0, -1):
+            for i in range(50, 0, -1):
                 self.root.after(0, lambda: self.status_var.set(f"状态: 等待组件初始化...{i}秒"))
                 time.sleep(1)
 
@@ -321,38 +349,57 @@ class CapsWriterLauncher:
             self.log("正在停止所有CapsWriter相关进程...")
             
             # 要终止的进程列表
-            target_processes = ['start_server.exe', 'start_client.exe']
-            
-            for proc_name in target_processes:
+            all_processes = list(psutil.process_iter(['pid', 'name', 'cwd'])) # 一次性获取所有进程信息
+
+            for proc in all_processes:
                 try:
-                    # 使用taskkill命令强制终止所有指定名称的进程
-                    subprocess.run(['taskkill', '/F', '/IM', proc_name], 
-                                  stdout=subprocess.DEVNULL, 
-                                  stderr=subprocess.DEVNULL,
-                                  timeout=10)
-                    self.log(f"已尝试强制终止所有 {proc_name} 进程")
-                except subprocess.TimeoutExpired:
-                    self.log(f"终止 {proc_name} 进程时超时")
-                except Exception as e:
-                    self.log(f"终止 {proc_name} 进程时出错: {str(e)}")
+                    proc_info = proc.info
+                    pid = proc_info.get('pid', '')
+                    proc_name = proc_info.get('name', '').lower()
+                    proc_cwd = proc_info.get('cwd', '')
+
+                    # 检查是否是目标进程且在目标目录下
+                    if (proc_name in self.target_processes and proc_cwd and os.path.abspath(proc_cwd) == os.path.abspath(self.caps_writer_dir)):
+                        self.log(f"尝试停止进程 {proc_name} (PID: {pid})")
+                        # 尝试优雅终止
+                        process = psutil.Process(pid)
+                        process.terminate()  # 发送终止信号
+                        # 等待进程退出
+                        try:
+                            process.wait(timeout=3)
+                            self.log(f"进程 {proc_name} (PID: {pid}) 已优雅退出")
+                        except psutil.TimeoutExpired:
+                            # 优雅终止失败，强制终止
+                            process.kill()
+                            self.log(f"进程 {proc_name} (PID: {pid}) 已强制终止")
+
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    self.log(f"终止进程时出错: {str(e)}")
             
             # 额外检查：确保进程确实已终止
             # 再次检查并报告状态
-            server_running, server_pid = self.check_process_by_name('start_server.exe', self.caps_writer_dir)
-            client_running, client_pid = self.check_process_by_name('start_client.exe', self.caps_writer_dir)
+            process_status = self.check_processes_by_names(self.target_processes, self.caps_writer_dir)
+            
+            server_running, server_pid = process_status[self.server_exe]
+            client_running, client_pid = process_status[self.client_exe]
             
             if server_running:
                 self.log(f"警告: Server进程仍在运行 (PID: {server_pid})")
+                return False
             else:
                 self.log("Server进程已成功终止")
+                return True
                 
             if client_running:
                 self.log(f"警告: Client进程仍在运行 (PID: {client_pid})")
+                return False
             else:
                 self.log("Client进程已成功终止")
+                return True
                 
         except Exception as e:
             self.log(f"停止进程时发生错误: {str(e)}")
+            return False
     
     def stop_caps_writer(self):
         """停止 CapsWriter"""
@@ -364,16 +411,18 @@ class CapsWriterLauncher:
         self.log("正在停止 CapsWriter...")
         self.root.after(0, lambda: self.status_var.set("状态: 停止中..."))
         try:
-            self._stop_existing_processes()
-            self.is_running = False
-            
-            self.root.after(0, lambda: self.status_var.set("状态: 已停止"))
-            self.root.after(0, lambda: self.start_btn.config(state=tk.NORMAL))
-            self.root.after(0, lambda: self.stop_btn.config(state=tk.DISABLED))
-            
-            self.log("CapsWriter 已完全停止")
-            self.root.after(100, self.check_process_status)
-            
+            result = self._stop_existing_processes()
+            if result:
+                self.is_running = False
+                
+                self.root.after(0, lambda: self.status_var.set("状态: 已停止"))
+                self.root.after(0, lambda: self.start_btn.config(state=tk.NORMAL))
+                self.root.after(0, lambda: self.stop_btn.config(state=tk.DISABLED))
+                
+                self.log("CapsWriter 已完全停止")
+                self.root.after(100, self.check_process_status)
+            else:
+                self.root.after(0, lambda: messagebox.showerror("❌ 停止进程失败，请检查"))
         except Exception as e:
             error_msg = f"停止失败: {str(e)}"
             self.log(error_msg)

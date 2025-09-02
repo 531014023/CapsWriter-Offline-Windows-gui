@@ -1,4 +1,5 @@
 CapsWriter-Offline-Windows-64bit/
+build/
 # 忽略所有以 .tmp 结尾的临时文件
 *.tmp
 

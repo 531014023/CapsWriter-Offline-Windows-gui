@@ -301,6 +301,7 @@ class CapsWriterLauncher:
                     subprocess.run(['taskkill', '/F', '/IM', proc_name], 
                                   stdout=subprocess.DEVNULL, 
                                   stderr=subprocess.DEVNULL,
+                                  creationflags=subprocess.CREATE_NO_WINDOW,
                                   timeout=10)
                     self.log(f"已尝试强制终止所有 {proc_name} 进程")
                 except subprocess.TimeoutExpired:
