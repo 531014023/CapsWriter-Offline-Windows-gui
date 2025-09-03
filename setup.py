@@ -1,5 +1,5 @@
 # setup.py
-import sys,os
+import os,re
 from cx_Freeze import setup, Executable
 
 # 包含 CapsWriter-Offline 目录
@@ -14,6 +14,12 @@ def get_include_files():
         # 跳过 models 目录
         if item == "models":
             continue
+        if re.fullmatch(r'^\d{4}$', item):
+            year_num = int(item)
+            # 检查数字是否在合理的年份范围内（例如1900-2100）
+            if 1900 <= year_num <= 2100:
+                print(f"跳过年份目录: {item}")
+                continue  # 跳过这个年份目录
         # 如果是文件，直接添加
         if os.path.isfile(item_path):
             include_list.append((item_path, os.path.join("CapsWriter-Offline-Windows-64bit", item)))
