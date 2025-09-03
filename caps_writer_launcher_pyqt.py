@@ -11,9 +11,6 @@ import keyboard
 import pyautogui
 import win32gui
 import win32process
-import win32api
-import ctypes
-from ctypes import wintypes
 
 class VoiceInputIndicator:
     def __init__(self, parent):
@@ -579,11 +576,13 @@ class CapsWriterLauncher:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 universal_newlines=False,
+                creationflags=subprocess.CREATE_NO_WINDOW,
                 env=env
             )
             
             self.log(f"Server进程已启动 (PID: {self.server_process.pid})")
             
+            time.sleep(1)
             # 启动Client进程（修改编码处理）
             self.client_process = subprocess.Popen(
                 [self.client_exe_path],
@@ -591,6 +590,7 @@ class CapsWriterLauncher:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 universal_newlines=False,
+                creationflags=subprocess.CREATE_NO_WINDOW,
                 env=env
             )
             

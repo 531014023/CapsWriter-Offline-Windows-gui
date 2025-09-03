@@ -13,6 +13,7 @@ def get_include_files():
         item_path = os.path.join(base_dir, item)
         # 跳过 models 目录
         if item == "models":
+            print(f"跳过模型目录: {item}")
             continue
         if re.fullmatch(r'^\d{4}$', item):
             year_num = int(item)
