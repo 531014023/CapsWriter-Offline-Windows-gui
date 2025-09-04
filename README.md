@@ -14,6 +14,8 @@ CapsWriter-Offline是CapsWriter 的离线版，一个好用的 PC 端的语音�
 
 # 自行打包使用方法
 
+**建议使用打包好的文件，自行打包需要动手能力强，也没必要，效果和我提供的是一样，除非你实在不放心我打包的文件，可以自行打包。**
+
 打包所需文件：
 - `CapsWriter-Offline-Windows-64bit` # 待打包程序文件
 - `setup.py` # 打包程序
@@ -22,7 +24,9 @@ CapsWriter-Offline是CapsWriter 的离线版，一个好用的 PC 端的语音�
 ```
 python setup.py build
 ```
-此命令会在当前目录生成build文件夹，其中就是一个完整的应用，执行exe即可打开使用，需要注意的是在使用命令前，需要先将[github](https://github.com/HaujetZhao/CapsWriter-Offline)程序`CapsWriter-Offline-Windows-64bit`放到当前目录供打包使用。打包后执行的是`CapsWriter-Offline-Windows-64bit`下的start_all.vbs，此文件是自定义的，就是隐藏黑窗口命令：
+此命令会在当前目录生成build文件夹，其中就是一个完整的应用，执行exe即可打开使用，需要注意的是在使用命令前，需要先将[github](https://github.com/HaujetZhao/CapsWriter-Offline)程序`CapsWriter-Offline-Windows-64bit`放到当前目录供打包使用。
+
+两个打包脚本执行的逻辑不一样，`caps_writer_launcher.py`打包后执行的是`CapsWriter-Offline-Windows-64bit`下的start_all.vbs，此文件是自定义的，就是隐藏黑窗口命令：
 ```
 CreateObject("Wscript.Shell").Run "start_server.exe",0,False
 WScript.Sleep 1000
@@ -30,12 +34,24 @@ CreateObject("Wscript.Shell").Run "start_client.exe",0,False
 ```
 如果不是用的我提供的程序就需要自己添上start_all.vbs文件。
 
+`caps_writer_launcher_pyqt.py`执行的是`CapsWriter-Offline-Windows-64bit`下的`start_server.exe`，`start_client.exe`，这个就不用添加start_all.vbs文件了。不过由于读取dos窗口内容会出现音频输出报错，需要修改核心程序代码，CapsWriter-Offline的核心音频处理功能位于 `CapsWriter-Offline-Windows-64bit/util/client_stream.py` 文件中。在文件import结束后增加代码：
+```
+# 对于Windows，尝试设置标准输出的编码
+if sys.stdout.encoding is None or sys.stdout.encoding.upper() != 'UTF-8':
+    try:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    except:
+        pass
+```
+就可以解决这个问题。如果你用的是我提供的`CapsWriter-Offline-Windows-64bit`程序就不需要修改，我已经修改好了。
+
 模型也需要去[github](https://github.com/HaujetZhao/CapsWriter-Offline)的发布页面下载model.zip，下载后放置到打包后的exe文件同级的`CapsWriter-Offline-Windows-64bit`目录下即可使用。
 ## 打包前目录结构
 ![](https://aliyun.93dd.top/picgo/20250901163957774.png)
 
 ## build目录结构
 build下面只有一个文件夹`exe.win-amd64-3.11`，下面的结构如下：
+
 ![](https://aliyun.93dd.top/picgo/20250901164041139.png)
 
 ## 模型文件放置位置
@@ -47,10 +63,9 @@ build下面只有一个文件夹`exe.win-amd64-3.11`，下面的结构如下：
 ```
 # 对于Windows，尝试设置标准输出的编码
 if sys.stdout.encoding is None or sys.stdout.encoding.upper() != 'UTF-8':
-    try:
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-    except:
-        pass
-        
+    try:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    except:
+        pass
 ```
 就可以解决这个问题。
