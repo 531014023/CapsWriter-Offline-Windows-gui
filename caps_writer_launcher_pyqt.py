@@ -9,8 +9,6 @@ import multiprocessing
 from PyQt5 import QtWidgets, QtGui
 import keyboard
 import pyautogui
-import win32gui
-import win32process
 
 class VoiceInputIndicator:
     def __init__(self, parent):
@@ -78,39 +76,14 @@ class VoiceInputIndicator:
     def _get_text_cursor_position(self):
         """获取当前活动窗口的文本光标位置"""
         try:
-            # 获取前台窗口
-            hwnd = win32gui.GetForegroundWindow()
-            
-            # 获取窗口线程ID和进程ID
-            thread_id, pid = win32process.GetWindowThreadProcessId(hwnd)
-
-            # 获取桌面窗口的线程ID（修正这里）
-            desktop_hwnd = win32gui.GetDesktopWindow()
-            desktop_thread_id, desktop_pid = win32process.GetWindowThreadProcessId(desktop_hwnd)
-            
-            # 附加到目标线程
-            win32process.AttachThreadInput(desktop_thread_id, thread_id, True)
-            
-            try:
-                # 获取光标位置
-                cursor_pos = win32gui.GetCaretPos()
-                
-                # 转换到屏幕坐标
-                point = win32gui.ClientToScreen(hwnd, cursor_pos)
-                self.current_cursor_position = point
-                
-                self.parent.log(f"文本光标位置: {point}")
-                
-            finally:
-                # 分离线程
-                win32process.AttachThreadInput(desktop_thread_id, thread_id, False)
-                
-        except Exception as e:
-            self.parent.log(f"获取文本光标位置失败: {str(e)}")
-            # 备用方案：使用鼠标位置
+            # 直接使用鼠标位置作为光标位置的近似
+            # 这是在现代Windows系统中最可靠的方法
             x, y = pyautogui.position()
             self.current_cursor_position = (x, y)
-    
+        except Exception as e:
+            self.parent.log(f"获取鼠标位置失败: {str(e)}")
+            self.current_cursor_position = None
+
     def show_voice_input_indicator(self):
         """显示语音输入指示器"""
         try:
@@ -218,7 +191,7 @@ class CapsWriterLauncher:
     def __init__(self, root):
         self.root = root
         self.root.title("CapsWriter-Offline 启动器")
-        self.root.geometry("600x600")
+        self.root.geometry("700x600")
         self.root.resizable(True, True)
         self.root.protocol('WM_DELETE_WINDOW', self.minimize_to_tray)
         # self.root.protocol('WM_DELETE_WINDOW', self.exit_application)
@@ -249,6 +222,8 @@ class CapsWriterLauncher:
         self.client_process = None
         self.server_thread = None
         self.client_thread = None
+
+        self.is_stopping = False # 手动停止或退出程序标记
         
         self.create_ui()
         self.create_tray_icon()
@@ -293,9 +268,14 @@ class CapsWriterLauncher:
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
         
-        # 配置主框架的网格权重
-        main_frame.grid_rowconfigure(4, weight=1)  # 进程状态监控区域
-        main_frame.grid_rowconfigure(6, weight=1)  # 日志区域
+        # 配置主框架的网格权重 - 优化缩放支持
+        main_frame.grid_rowconfigure(0, weight=0)  # 标题（固定高度）
+        main_frame.grid_rowconfigure(1, weight=0)  # 状态显示（固定高度）
+        main_frame.grid_rowconfigure(2, weight=0)  # 按钮框架（固定高度）
+        main_frame.grid_rowconfigure(3, weight=0)  # 进程状态监控标签（固定高度）
+        main_frame.grid_rowconfigure(4, weight=1)  # 进程状态监控区域（高优先级缩放）
+        main_frame.grid_rowconfigure(5, weight=0)  # 空行间距（固定高度）
+        main_frame.grid_rowconfigure(6, weight=2)  # 日志区域（低优先级缩放，优先被压缩）
         main_frame.grid_columnconfigure(0, weight=1)
         
         # 标题 (row 0) - 使用Frame实现真正居中
@@ -350,31 +330,33 @@ class CapsWriterLauncher:
         # 进程状态详情框架 (row 4)
         status_detail_frame = ttk.Frame(main_frame)
         status_detail_frame.grid(row=4, column=0, pady=5, sticky="nsew")
-        status_detail_frame.grid_rowconfigure(2, weight=1)  # Server输出区域
-        status_detail_frame.grid_rowconfigure(4, weight=1)  # Client输出区域
-        status_detail_frame.grid_columnconfigure(0, weight=1)
+        status_detail_frame.grid_rowconfigure(0, weight=0)  # 状态行（固定高度，不被压缩）
+        status_detail_frame.grid_rowconfigure(1, weight=1)  # 输出区域（可缩放，优先被压缩）
+        status_detail_frame.grid_columnconfigure(0, weight=1)  # Server列
+        status_detail_frame.grid_columnconfigure(1, weight=1)  # Client列
         
-        # Server 状态 (row 0)
-        server_status_frame = ttk.Frame(status_detail_frame)
+        # Server 状态和输出 (第0列)
+        server_column_frame = ttk.Frame(status_detail_frame)
+        server_column_frame.grid(row=0, column=0, rowspan=2, padx=(0, 5), sticky="nsew")
+        server_column_frame.grid_rowconfigure(0, weight=0)  # 状态行（固定高度）
+        server_column_frame.grid_rowconfigure(1, weight=1)  # 输出区域（可缩放）
+        server_column_frame.grid_columnconfigure(0, weight=1)
+        
+        # Server 状态
+        server_status_frame = ttk.Frame(server_column_frame)
         server_status_frame.grid(row=0, column=0, pady=2, sticky="w")
         ttk.Label(server_status_frame, text="Server:", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=5)
         self.server_status_var = tk.StringVar(value="❓ 状态未知")
         ttk.Label(server_status_frame, textvariable=self.server_status_var, font=("Arial", 10)).pack(side=tk.LEFT)
-        # Client 状态 (row 1)
-        client_status_frame = ttk.Frame(status_detail_frame)
-        client_status_frame.grid(row=1, column=0, pady=2, sticky="w")
-        ttk.Label(client_status_frame, text="Client:", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=5)
-        self.client_status_var = tk.StringVar(value="❓ 状态未知")
-        ttk.Label(client_status_frame, textvariable=self.client_status_var, font=("Arial", 10)).pack(side=tk.LEFT)
-                
-        # Server 输出区域 (row 2)
-        server_output_frame = ttk.LabelFrame(status_detail_frame, text="Server 输出")
-        server_output_frame.grid(row=2, column=0, pady=5, sticky="nsew")
+        
+        # Server 输出区域
+        server_output_frame = ttk.LabelFrame(server_column_frame, text="Server 输出")
+        server_output_frame.grid(row=1, column=0, sticky="nsew")
         
         server_text_frame = ttk.Frame(server_output_frame)
         server_text_frame.pack(fill=tk.BOTH, expand=True)
         
-        self.server_output_text = tk.Text(server_text_frame, height=4, font=("Consolas", 9))
+        self.server_output_text = tk.Text(server_text_frame, height=14, font=("Consolas", 9))
         server_scrollbar = ttk.Scrollbar(server_text_frame, orient=tk.VERTICAL, command=self.server_output_text.yview)
         self.server_output_text.configure(yscrollcommand=server_scrollbar.set)
         
@@ -383,14 +365,32 @@ class CapsWriterLauncher:
         server_text_frame.grid_rowconfigure(0, weight=1)
         server_text_frame.grid_columnconfigure(0, weight=1)
         
-        # Client 输出区域 (row 3)
-        client_output_frame = ttk.LabelFrame(status_detail_frame, text="Client 输出")
-        client_output_frame.grid(row=3, column=0, pady=5, sticky="nsew")
+        # 立即设置Server输出区域的默认内容
+        self.server_output_text.insert(tk.END, "等待Server启动...")
+        self.server_output_text.see(tk.END)
+        
+        # Client 状态和输出 (第1列)
+        client_column_frame = ttk.Frame(status_detail_frame)
+        client_column_frame.grid(row=0, column=1, rowspan=2, padx=(5, 0), sticky="nsew")
+        client_column_frame.grid_rowconfigure(0, weight=0)  # 状态行（固定高度）
+        client_column_frame.grid_rowconfigure(1, weight=1)  # 输出区域（可缩放）
+        client_column_frame.grid_columnconfigure(0, weight=1)
+        
+        # Client 状态
+        client_status_frame = ttk.Frame(client_column_frame)
+        client_status_frame.grid(row=0, column=0, pady=2, sticky="w")
+        ttk.Label(client_status_frame, text="Client:", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=5)
+        self.client_status_var = tk.StringVar(value="❓ 状态未知")
+        ttk.Label(client_status_frame, textvariable=self.client_status_var, font=("Arial", 10)).pack(side=tk.LEFT)
+        
+        # Client 输出区域
+        client_output_frame = ttk.LabelFrame(client_column_frame, text="Client 输出")
+        client_output_frame.grid(row=1, column=0, sticky="nsew")
         
         client_text_frame = ttk.Frame(client_output_frame)
         client_text_frame.pack(fill=tk.BOTH, expand=True)
         
-        self.client_output_text = tk.Text(client_text_frame, height=4, font=("Consolas", 9))
+        self.client_output_text = tk.Text(client_text_frame, height=14, font=("Consolas", 9))
         client_scrollbar = ttk.Scrollbar(client_text_frame, orient=tk.VERTICAL, command=self.client_output_text.yview)
         self.client_output_text.configure(yscrollcommand=client_scrollbar.set)
         
@@ -398,6 +398,10 @@ class CapsWriterLauncher:
         client_scrollbar.grid(row=0, column=1, sticky="ns")
         client_text_frame.grid_rowconfigure(0, weight=1)
         client_text_frame.grid_columnconfigure(0, weight=1)
+        
+        # 立即设置Client输出区域的默认内容
+        self.client_output_text.insert(tk.END, "等待Client启动...")
+        self.client_output_text.see(tk.END)
  
         # 日志区域 (row 5)
         log_frame = ttk.LabelFrame(main_frame, text="操作日志")
@@ -406,7 +410,7 @@ class CapsWriterLauncher:
         log_text_frame = ttk.Frame(log_frame)
         log_text_frame.pack(fill=tk.BOTH, expand=True)
         
-        self.log_text = tk.Text(log_text_frame, height=3, font=("Consolas", 9))
+        self.log_text = tk.Text(log_text_frame, height=5, font=("Consolas", 9))
         log_scrollbar = ttk.Scrollbar(log_text_frame, orient=tk.VERTICAL, command=self.log_text.yview)
         self.log_text.configure(yscrollcommand=log_scrollbar.set)
         
@@ -624,6 +628,9 @@ class CapsWriterLauncher:
         self.root.after(0, lambda: self.status_var.set("状态: 等待服务启动..."))
         
         while time.time() - start_time < max_wait_time:
+            if self.is_stopping:  # 检测是否已停止
+                self.log("已手动停止启动")
+                return
             # 检查Server是否启动完成
             if not server_started and hasattr(self, 'server_startup_signal') and self.server_startup_signal:
                 server_started = True
@@ -684,7 +691,7 @@ class CapsWriterLauncher:
                 
                 # 检查进程是否正常退出
                 return_code = self.server_process.wait()
-                if return_code != 0:
+                if return_code != 0 and not self.is_stopping:
                     self.log(f"Server进程异常退出，返回码: {return_code}")
         except Exception as e:
             self.log(f"读取Server输出时出错: {str(e)}")
@@ -715,7 +722,7 @@ class CapsWriterLauncher:
                 
                 # 检查进程是否正常退出
                 return_code = self.client_process.wait()
-                if return_code != 0:
+                if return_code != 0 and not self.is_stopping:
                     self.log(f"Client进程异常退出，返回码: {return_code}")
         except Exception as e:
             self.log(f"读取Client输出时出错: {str(e)}")
@@ -810,6 +817,8 @@ class CapsWriterLauncher:
         self.log("正在停止 CapsWriter...")
         self.root.after(0, lambda: self.status_var.set("状态: 停止中..."))
         try:
+            # 停止进程标记
+            self.is_stopping = True
             result = self._stop_existing_processes()
             # 清理进程引用
             self.server_process = None

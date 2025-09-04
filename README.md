@@ -40,3 +40,17 @@ build下面只有一个文件夹`exe.win-amd64-3.11`，下面的结构如下：
 
 ## 模型文件放置位置
 ![](https://aliyun.93dd.top/picgo/20250901164222308.png)
+
+
+# 注意事项
+由于读取dos窗口内容会出现音频输出报错，需要修改核心程序代码，CapsWriter-Offline的核心音频处理功能位于 `util/client_stream.py` 文件中。在文件import结束后增加代码：
+```
+# 对于Windows，尝试设置标准输出的编码
+if sys.stdout.encoding is None or sys.stdout.encoding.upper() != 'UTF-8':
+    try:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    except:
+        pass
+        
+```
+就可以解决这个问题。
