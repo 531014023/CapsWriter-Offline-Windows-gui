@@ -1,4 +1,4 @@
-![](https://aliyun.93dd.top/picgo/20250901171510426.png)
+![](https://aliyun.93dd.top/picgo/20250904133256705.png)
 
 # 软件介绍
 CapsWriter-Offline是CapsWriter 的离线版，一个好用的 PC 端的语音输入工具。但是离线版是控制台运行，不方便使用，我就用deepseek写了个python的gui图形界面工具来管理。
